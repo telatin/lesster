@@ -1,11 +1,11 @@
 # Package
 
-version       = "0.3.0"
+version       = "0.1.0"
 author        = "Andrea Telatin"
-description   = "TUI table viewer library with interactive sort, search, filter and graph"
+description   = "A less-like interactive text pager library for Nim"
 license       = "MIT"
 srcDir        = "src"
-namedBin      = {"tableview_app": "tableview", "wordcount_demo": "wordcount"}.toTable()
+namedBin      = {"lesster_app": "lesster"}.toTable()
 binDir        = "bin"
 
 # Dependencies
@@ -16,5 +16,5 @@ requires "illwave"
 requires "argparse"
 
 task docs, "Generate HTML documentation into docs/":
-  exec "nim doc --project --outdir:docs --index:on src/tableview.nim"
+  exec "nim doc --project --outdir:docs --index:on src/lesster.nim"
   exec "cp docs/theindex.html docs/index.html"

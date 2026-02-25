@@ -2,3 +2,6 @@ tableview
 *_simple.nim
 *_v1.nim
 bin/*
+.DS_Store
+*.md
+!README.md
