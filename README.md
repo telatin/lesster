@@ -34,21 +34,25 @@ cat output.txt | lesster -
 |------|-------------|
 | `-t`, `--title` | Title shown in the title bar (default: filename) |
 | `-s`, `--scheme` | Colour theme: `default` `dark` `light` `matrix` `mono` `terminal` |
+| `--full-help` | Open bundled full help in the TUI |
 
 ## Keybindings
 
 | Key | Action |
 |-----|--------|
-| `???` / `???` | Scroll one line up / down |
+| `Up` / `Down` | Scroll one line up / down |
 | `PgUp` / `PgDn` | Scroll one page up / down |
 | `Space` | Scroll one page down |
 | `g` | Jump to top |
 | `G` | Jump to bottom |
 | `/` | Enter case-insensitive regex search mode |
 | `n` / `N` | Next / previous match |
+| `m` | Toggle minimal Markdown rendering |
 | `s` | Toggle word-wrap |
 | `Tab` | Cycle colour themes |
 | `q` | Quit |
+
+Markdown mode is auto-enabled when opening files ending in `.md`.
 
 ## Library API
 

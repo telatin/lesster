@@ -5,6 +5,7 @@ bin/*
 .DS_Store
 *.md
 !README.md
+!src/assets/help.md
 lesster.zip
 .nimble/
 .nimcache/

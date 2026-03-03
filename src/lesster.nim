@@ -20,6 +20,7 @@
 ## ``/``      Enter case-insensitive regex search mode
 ## ``n``      Next search match
 ## ``N``      Previous search match
+## ``m``      Toggle minimal Markdown rendering on / off
 ## ``s``      Toggle word-wrap on / off
 ## ``Tab``    Cycle through colour themes
 ## ``q``      Quit
@@ -53,6 +54,12 @@ type
     searchFg*: iw.ForegroundColor  ## Search prompt bar foreground
     matchBg*:  iw.BackgroundColor  ## Search-match line highlight background
     matchFg*:  iw.ForegroundColor  ## Search-match line highlight foreground
+    mdHeaderBg*: iw.BackgroundColor    ## Markdown header background (same as body background).
+    mdHeaderFg*: iw.ForegroundColor    ## Markdown header foreground (bright/accent color).
+    mdCodeBg*: iw.BackgroundColor      ## Markdown code-block background (contrasts with body background).
+    mdCodeFg*: iw.ForegroundColor      ## Markdown code-block foreground.
+    mdEmphasisBg*: iw.BackgroundColor  ## Markdown emphasis background (same as body background).
+    mdEmphasisFg*: iw.ForegroundColor  ## Markdown emphasis foreground (same accent as header).
 
 # ── Theme registry ────────────────────────────────────────────────────────────
 
@@ -66,42 +73,60 @@ let ThemesTable* = {
     bodyBg:   iw.bgNone,    bodyFg:   iw.fgWhite,
     statusBg: iw.bgNone,    statusFg: iw.fgWhite,
     searchBg: iw.bgNone,    searchFg: iw.fgYellow,
-    matchBg:  iw.bgNone,    matchFg:  iw.fgYellow
+    matchBg:  iw.bgNone,    matchFg:  iw.fgYellow,
+    mdHeaderBg: iw.bgNone,  mdHeaderFg: iw.fgYellow,
+    mdCodeBg: iw.bgBlack,   mdCodeFg: iw.fgWhite,
+    mdEmphasisBg: iw.bgNone, mdEmphasisFg: iw.fgYellow
   ),
   "default": Theme(
     titleBg:  iw.bgBlue,    titleFg:  iw.fgWhite,
     bodyBg:   iw.bgBlack,   bodyFg:   iw.fgWhite,
     statusBg: iw.bgCyan,    statusFg: iw.fgBlack,
     searchBg: iw.bgYellow,  searchFg: iw.fgBlack,
-    matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack
+    matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack,
+    mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgCyan,
+    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan
   ),
   "dark": Theme(
     titleBg:  iw.bgBlack,   titleFg:  iw.fgCyan,
     bodyBg:   iw.bgBlack,   bodyFg:   iw.fgWhite,
     statusBg: iw.bgBlue,    statusFg: iw.fgWhite,
     searchBg: iw.bgGreen,   searchFg: iw.fgBlack,
-    matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack
+    matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack,
+    mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgCyan,
+    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan
   ),
   "light": Theme(
     titleBg:  iw.bgWhite,   titleFg:  iw.fgBlue,
     bodyBg:   iw.bgWhite,   bodyFg:   iw.fgBlack,
     statusBg: iw.bgBlue,    statusFg: iw.fgWhite,
     searchBg: iw.bgYellow,  searchFg: iw.fgBlack,
-    matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack
+    matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack,
+    mdHeaderBg: iw.bgWhite, mdHeaderFg: iw.fgBlue,
+    mdCodeBg: iw.bgCyan,    mdCodeFg: iw.fgBlack,
+    mdEmphasisBg: iw.bgWhite, mdEmphasisFg: iw.fgBlue
   ),
   "matrix": Theme(
     titleBg:  iw.bgBlack,   titleFg:  iw.fgGreen,
     bodyBg:   iw.bgBlack,   bodyFg:   iw.fgGreen,
     statusBg: iw.bgGreen,   statusFg: iw.fgBlack,
     searchBg: iw.bgGreen,   searchFg: iw.fgBlack,
-    matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack
+    matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack,
+    mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgGreen,
+    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgGreen
   ),
   "mono": Theme(
     titleBg:  iw.bgWhite,   titleFg:  iw.fgBlack,
     bodyBg:   iw.bgBlack,   bodyFg:   iw.fgWhite,
     statusBg: iw.bgWhite,   statusFg: iw.fgBlack,
     searchBg: iw.bgWhite,   searchFg: iw.fgBlack,
-    matchBg:  iw.bgWhite,   matchFg:  iw.fgBlack
+    matchBg:  iw.bgWhite,   matchFg:  iw.fgBlack,
+    mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgWhite,
+    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgWhite
   )
 }.toTable
 
@@ -112,9 +137,25 @@ type
     imNormal  ## Regular scrolling / navigation
     imSearch  ## User is typing a search pattern
 
+  MdLineKind = enum
+    mlBody
+    mlHeader
+    mlCode
+
+  MdInlineKind = enum
+    mikItalic
+    mikBold
+
+  MdSpan = object
+    bounds: Slice[int]   ## Byte bounds in the wrapped line.
+    kind: MdInlineKind
+
   State = object
     lines:         seq[string]  ## Original source lines
     wrappedLines:  seq[string]  ## Lines after word-wrap (or == lines when off)
+    markdownMode:  bool
+    mdLineKinds:   seq[MdLineKind]  ## Per wrapped-line markdown kind.
+    mdInlineSpans: Table[int, seq[MdSpan]] ## Optional inline emphasis spans by wrapped-line index.
     wrapWidth:     int          ## Terminal width used when wrapping last ran
     scrollY:       int          ## Index of the top-visible line in wrappedLines
     wordWrap:      bool
@@ -161,15 +202,122 @@ proc wrapOneLine(line: string, width: int): seq[string] =
         cur = w
   result.add(cur)
 
+proc spansOverlap(a, b: Slice[int]): bool =
+  not (a.b < b.a or b.b < a.a)
+
+proc hasOverlap(spans: seq[MdSpan], bounds: Slice[int]): bool =
+  for span in spans:
+    if spansOverlap(span.bounds, bounds):
+      return true
+  return false
+
+proc parseDoubleDelimitedSpans(line: string, delim: string, kind: MdInlineKind): seq[MdSpan] =
+  let delimLen = delim.len
+  if delimLen == 0 or line.len < delimLen * 2:
+    return
+  var i = 0
+  while i <= line.len - delimLen:
+    if line[i ..< i + delimLen] == delim:
+      let startIdx = i + delimLen
+      var j = startIdx
+      var foundClose = false
+      while j <= line.len - delimLen:
+        if line[j ..< j + delimLen] == delim:
+          if j > startIdx:
+            result.add(MdSpan(bounds: startIdx .. j - 1, kind: kind))
+          i = j + delimLen
+          foundClose = true
+          break
+        inc j
+      if not foundClose:
+        inc i
+    else:
+      inc i
+
+proc parseSingleDelimitedSpans(line: string, delim: char, kind: MdInlineKind,
+                               existing: seq[MdSpan]): seq[MdSpan] =
+  if line.len < 3:
+    return
+  var i = 0
+  while i < line.len:
+    let isOpen = line[i] == delim and
+                 (i == 0 or line[i - 1] != delim) and
+                 (i + 1 < line.len and line[i + 1] != delim)
+    if isOpen:
+      let startIdx = i + 1
+      var j = startIdx
+      var foundClose = false
+      while j < line.len:
+        let isClose = line[j] == delim and
+                      line[j - 1] != delim and
+                      (j + 1 == line.len or line[j + 1] != delim)
+        if isClose:
+          if j > startIdx:
+            let bounds = startIdx .. j - 1
+            if not hasOverlap(existing, bounds):
+              result.add(MdSpan(bounds: bounds, kind: kind))
+          i = j + 1
+          foundClose = true
+          break
+        inc j
+      if not foundClose:
+        inc i
+    else:
+      inc i
+
+proc collectMarkdownInlineSpans(line: string): seq[MdSpan] =
+  result.add(parseDoubleDelimitedSpans(line, "__", mikBold))
+  result.add(parseDoubleDelimitedSpans(line, "**", mikBold))
+  result.add(parseSingleDelimitedSpans(line, '_', mikItalic, result))
+  result.add(parseSingleDelimitedSpans(line, '*', mikItalic, result))
+  for i in 1 ..< result.len:
+    var j = i
+    while j > 0 and result[j - 1].bounds.a > result[j].bounds.a:
+      swap(result[j - 1], result[j])
+      dec j
+
 proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
   ## Rebuild wrappedLines from lines using *width*; clamp scrollY.
   ctx.data.wrappedLines = @[]
-  if ctx.data.wordWrap:
-    for line in ctx.data.lines:
-      for wl in wrapOneLine(line, width):
-        ctx.data.wrappedLines.add(wl)
-  else:
-    ctx.data.wrappedLines = ctx.data.lines
+  ctx.data.mdLineKinds = @[]
+  ctx.data.mdInlineSpans = initTable[int, seq[MdSpan]]()
+
+  var inCodeBlock = false
+  for line in ctx.data.lines:
+    var displayLine = line
+    var lineKind = mlBody
+    if ctx.data.markdownMode:
+      let trimmed = strutils.strip(line, leading = true, trailing = false)
+      let isFence = trimmed.startsWith("```")
+      if inCodeBlock:
+        lineKind = mlCode
+        if isFence:
+          inCodeBlock = false
+      else:
+        if isFence:
+          lineKind = mlCode
+          inCodeBlock = true
+        elif trimmed.len > 0 and trimmed[0] == '#':
+          lineKind = mlHeader
+          var hashCount = 0
+          while hashCount < trimmed.len and trimmed[hashCount] == '#':
+            inc hashCount
+          if hashCount == 1:
+            displayLine = line.toUpperAscii()
+
+    let wrapped =
+      if ctx.data.wordWrap: wrapOneLine(displayLine, width)
+      else: @[displayLine]
+
+    for wl in wrapped:
+      let idx = ctx.data.wrappedLines.len
+      ctx.data.wrappedLines.add(wl)
+      ctx.data.mdLineKinds.add(lineKind)
+      if ctx.data.markdownMode and lineKind != mlCode:
+        let spans = collectMarkdownInlineSpans(wl)
+        if spans.len > 0:
+          ctx.data.mdInlineSpans[idx] = spans
+
   ctx.data.wrapWidth = width
   let maxScroll = max(0, ctx.data.wrappedLines.len - 1)
   ctx.data.scrollY = min(ctx.data.scrollY, maxScroll)
@@ -236,19 +384,62 @@ proc renderBody(ctx: var nw.Context[State]) =
     let lineIdx = ctx.data.scrollY + row
     let y = row + 1  # +1 because y=0 is the title bar
 
-    iw.setBackgroundColor(ctx.tb, theme.bodyBg)
-    iw.setForegroundColor(ctx.tb, theme.bodyFg)
     let text =
       if lineIdx >= 0 and lineIdx < ctx.data.wrappedLines.len:
         ctx.data.wrappedLines[lineIdx]
       else:
         ""
+    var baseBg = theme.bodyBg
+    var baseFg = theme.bodyFg
+    var baseStyle: set[terminal.Style] = {}
+    if ctx.data.markdownMode and lineIdx >= 0 and lineIdx < ctx.data.mdLineKinds.len:
+      case ctx.data.mdLineKinds[lineIdx]:
+      of mlHeader:
+        baseBg = theme.mdHeaderBg
+        baseFg = theme.mdHeaderFg
+        baseStyle = {terminal.styleBright}
+      of mlCode:
+        baseBg = theme.mdCodeBg
+        baseFg = theme.mdCodeFg
+      of mlBody:
+        discard
+
+    iw.setBackgroundColor(ctx.tb, baseBg)
+    iw.setForegroundColor(ctx.tb, baseFg)
+    iw.setStyle(ctx.tb, baseStyle)
     let full = text & " ".repeat(max(0, w - text.runeLen))
     iw.write(ctx.tb, 0, y, full.runeSubStr(0, w))
     iw.resetAttributes(ctx.tb)
 
     if text.len == 0 or w <= 0:
       continue
+
+    if ctx.data.markdownMode and ctx.data.mdInlineSpans.hasKey(lineIdx):
+      for span in ctx.data.mdInlineSpans[lineIdx]:
+        let bounds = span.bounds
+        if bounds.a < 0 or bounds.b < bounds.a or bounds.a >= text.len:
+          continue
+        let endByte = min(bounds.b, text.len - 1)
+        let prefix = if bounds.a > 0: text[0 ..< bounds.a] else: ""
+        let spanText = text[bounds.a .. endByte]
+        let x = prefix.runeLen
+        if x >= w:
+          continue
+        let remainingWidth = w - x
+        var toDraw = spanText
+        if toDraw.runeLen > remainingWidth:
+          toDraw = toDraw.runeSubStr(0, remainingWidth)
+        if toDraw.runeLen == 0:
+          continue
+        iw.setBackgroundColor(ctx.tb, theme.mdEmphasisBg)
+        iw.setForegroundColor(ctx.tb, theme.mdEmphasisFg)
+        case span.kind:
+        of mikItalic:
+          iw.setStyle(ctx.tb, {terminal.styleItalic})
+        of mikBold:
+          iw.setStyle(ctx.tb, {terminal.styleBright})
+        iw.write(ctx.tb, x, y, toDraw)
+        iw.resetAttributes(ctx.tb)
 
     if ctx.data.matchRanges.hasKey(lineIdx):
       for bounds in ctx.data.matchRanges[lineIdx]:
@@ -399,6 +590,13 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
                            ctx.data.matchLines.len
       scrollToCurrentMatch(ctx, contentH)
 
+  of iw.Key(ord('m')):
+    ctx.data.markdownMode = not ctx.data.markdownMode
+    buildWrappedLines(ctx, w)
+    discard buildMatchList(ctx)
+    ctx.data.statusMessage    = if ctx.data.markdownMode: "Markdown mode ON" else: "Markdown mode OFF"
+    ctx.data.statusMessageTTL = 80
+
   of iw.Key(ord('s')):
     ctx.data.wordWrap = not ctx.data.wordWrap
     buildWrappedLines(ctx, w)
@@ -467,7 +665,7 @@ proc runEventLoop(ctx: var nw.Context[State]) =
 # ── Initialisation ────────────────────────────────────────────────────────────
 
 proc initPager(ctx: var nw.Context[State], lines: seq[string],
-               title: string, themeName: string) =
+               title: string, themeName: string, markdownMode: bool) =
   let name = if ThemesTable.hasKey(themeName): themeName else: "default"
   ctx.data.theme    = ThemesTable[name]
   ctx.data.themeIdx = block:
@@ -478,6 +676,9 @@ proc initPager(ctx: var nw.Context[State], lines: seq[string],
 
   ctx.data.lines        = lines
   ctx.data.title        = if title.len > 0: title else: "lesster"
+  ctx.data.markdownMode = markdownMode
+  ctx.data.mdLineKinds  = @[]
+  ctx.data.mdInlineSpans = initTable[int, seq[MdSpan]]()
   ctx.data.wordWrap     = true
   ctx.data.scrollY      = 0
   ctx.data.inputMode    = imNormal
@@ -503,7 +704,7 @@ proc initPager(ctx: var nw.Context[State], lines: seq[string],
 # ── Public API ────────────────────────────────────────────────────────────────
 
 proc viewText*(lines: seq[string], title: string = "lesster",
-               themeName: string = "default") =
+               themeName: string = "default", markdownMode: bool = false) =
   ## Launch the interactive pager with an in-memory sequence of text lines.
   ##
   ## `title` is displayed centred in the title bar.
@@ -511,11 +712,11 @@ proc viewText*(lines: seq[string], title: string = "lesster",
   ## (``"default"``, ``"dark"``, ``"light"``, ``"matrix"``, ``"mono"``,
   ## ``"terminal"``); unknown names fall back to ``"default"``.
   var ctx: nw.Context[State]
-  initPager(ctx, lines, title, themeName)
+  initPager(ctx, lines, title, themeName, markdownMode)
   runEventLoop(ctx)
 
 proc viewFile*(path: string, title: string = "",
-               themeName: string = "default") =
+               themeName: string = "default", markdownMode: bool = false) =
   ## Launch the interactive pager for a file path, or ``"-"`` for stdin.
   ##
   ## When reading from stdin, fd 0 is reconnected to ``/dev/tty`` after
@@ -542,5 +743,5 @@ proc viewFile*(path: string, title: string = "",
     displayTitle = if title.len > 0: title else: path
 
   var ctx: nw.Context[State]
-  initPager(ctx, lines, displayTitle, themeName)
+  initPager(ctx, lines, displayTitle, themeName, markdownMode)
   runEventLoop(ctx)

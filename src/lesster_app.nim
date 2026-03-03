@@ -3,6 +3,8 @@ import strutils
 import argparse
 import lesster
 
+const fullHelpMarkdown = staticRead("assets/help.md")
+
 proc main() =
   var p = newParser("lesster"):
     help("A less-like interactive text pager")
@@ -12,18 +14,30 @@ proc main() =
            help = "Title shown in the title bar (default: filename)")
     option("-s", "--scheme",  default = some("default"),
            help = "Colour theme: default, dark, light, matrix, mono, terminal")
+    flag("--full-help",
+         help = "Open the bundled full help in the TUI")
 
   try:
     let opts = p.parse()
     let path      = if opts.file.len > 0: opts.file[0] else: "-"
     let themeName = opts.scheme
     let title     = opts.title
+    let markdownMode = path != "-" and path.toLowerAscii().endsWith(".md")
+
+    if opts.fullHelp:
+      viewText(
+        fullHelpMarkdown.splitLines(),
+        title = "lesster Full Help",
+        themeName = themeName,
+        markdownMode = true
+      )
+      return
 
     if path != "-" and not fileExists(path):
       echo "Error: file not found: ", path
       quit(1)
 
-    viewFile(path, title, themeName)
+    viewFile(path, title, themeName, markdownMode = markdownMode)
 
   except ShortCircuit as e:
     if e.flag == "argparse_help":
