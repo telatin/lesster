@@ -42,7 +42,7 @@ cat output.txt | lesster -
 | `Space` | Scroll one page down |
 | `g` | Jump to top |
 | `G` | Jump to bottom |
-| `/` | Enter search mode |
+| `/` | Enter case-insensitive regex search mode |
 | `n` / `N` | Next / previous match |
 | `s` | Toggle word-wrap |
 | `Tab` | Cycle colour themes |

@@ -17,7 +17,7 @@
 ## ``Space``  Scroll one page down
 ## ``g``      Jump to the top
 ## ``G``      Jump to the bottom
-## ``/``      Enter search mode (type pattern, then Enter)
+## ``/``      Enter case-insensitive regex search mode
 ## ``n``      Next search match
 ## ``N``      Previous search match
 ## ``s``      Toggle word-wrap on / off
@@ -30,6 +30,7 @@ import terminal
 import unicode
 import strutils
 import tables
+import regex
 when defined(posix):
   import posix
 from illwave as iw import `[]`, `[]=`, `==`
@@ -121,6 +122,7 @@ type
     inputBuffer:   string       ## In-progress search text
     searchPattern: string       ## Committed search pattern
     matchLines:    seq[int]     ## wrappedLines indices that contain the pattern
+    matchRanges:   Table[int, seq[Slice[int]]] ## Byte ranges for matched substrings per line.
     matchIdx:      int          ## Current position in matchLines (for n / N)
     title:         string
     theme:         Theme
@@ -174,16 +176,31 @@ proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
 
 # ── Search helpers ────────────────────────────────────────────────────────────
 
-proc buildMatchList(ctx: var nw.Context[State]) =
+proc buildMatchList(ctx: var nw.Context[State]): tuple[ok: bool, err: string] =
   ## Populate matchLines with all wrappedLines indices matching searchPattern.
+  ## Returns `ok = false` when searchPattern is not a valid regex.
   ctx.data.matchLines = @[]
+  ctx.data.matchRanges = initTable[int, seq[Slice[int]]]()
   ctx.data.matchIdx = 0
   if ctx.data.searchPattern.len == 0:
-    return
-  let pat = ctx.data.searchPattern.toLower()
-  for i, line in ctx.data.wrappedLines:
-    if pat in line.toLower():
-      ctx.data.matchLines.add(i)
+    return (true, "")
+  try:
+    let pat = re2("(?i)" & ctx.data.searchPattern)
+    for i, line in ctx.data.wrappedLines:
+      var hasMatch = false
+      var ranges: seq[Slice[int]] = @[]
+      for bounds in findAllBounds(line, pat):
+        hasMatch = true
+        # Zero-length matches are valid for navigation, but have no visible span.
+        if bounds.a <= bounds.b:
+          ranges.add(bounds)
+      if hasMatch:
+        ctx.data.matchLines.add(i)
+        if ranges.len > 0:
+          ctx.data.matchRanges[i] = ranges
+    return (true, "")
+  except RegexError:
+    return (false, getCurrentExceptionMsg())
 
 proc scrollToCurrentMatch(ctx: var nw.Context[State], contentH: int) =
   ## Scroll so the current match is visible.
@@ -214,27 +231,13 @@ proc renderBody(ctx: var nw.Context[State]) =
   let h = iw.height(ctx.tb)
   let contentH = h - 2   # rows between title bar and status bar
   let theme = ctx.data.theme
-  let curMatchLine =
-    if ctx.data.matchLines.len > 0 and
-       ctx.data.matchIdx < ctx.data.matchLines.len:
-      ctx.data.matchLines[ctx.data.matchIdx]
-    else:
-      -1
 
   for row in 0 ..< contentH:
     let lineIdx = ctx.data.scrollY + row
     let y = row + 1  # +1 because y=0 is the title bar
 
-    let isCurMatch = lineIdx == curMatchLine
-    let isMatch = (not isCurMatch) and (lineIdx in ctx.data.matchLines)
-
-    if isCurMatch or isMatch:
-      iw.setBackgroundColor(ctx.tb, theme.matchBg)
-      iw.setForegroundColor(ctx.tb, theme.matchFg)
-    else:
-      iw.setBackgroundColor(ctx.tb, theme.bodyBg)
-      iw.setForegroundColor(ctx.tb, theme.bodyFg)
-
+    iw.setBackgroundColor(ctx.tb, theme.bodyBg)
+    iw.setForegroundColor(ctx.tb, theme.bodyFg)
     let text =
       if lineIdx >= 0 and lineIdx < ctx.data.wrappedLines.len:
         ctx.data.wrappedLines[lineIdx]
@@ -243,6 +246,30 @@ proc renderBody(ctx: var nw.Context[State]) =
     let full = text & " ".repeat(max(0, w - text.runeLen))
     iw.write(ctx.tb, 0, y, full.runeSubStr(0, w))
     iw.resetAttributes(ctx.tb)
+
+    if text.len == 0 or w <= 0:
+      continue
+
+    if ctx.data.matchRanges.hasKey(lineIdx):
+      for bounds in ctx.data.matchRanges[lineIdx]:
+        if bounds.a < 0 or bounds.b < bounds.a or bounds.a >= text.len:
+          continue
+        let endByte = min(bounds.b, text.len - 1)
+        let prefix = if bounds.a > 0: text[0 ..< bounds.a] else: ""
+        let matchText = text[bounds.a .. endByte]
+        let x = prefix.runeLen
+        if x >= w:
+          continue
+        let remainingWidth = w - x
+        var toDraw = matchText
+        if toDraw.runeLen > remainingWidth:
+          toDraw = toDraw.runeSubStr(0, remainingWidth)
+        if toDraw.runeLen == 0:
+          continue
+        iw.setBackgroundColor(ctx.tb, theme.matchBg)
+        iw.setForegroundColor(ctx.tb, theme.matchFg)
+        iw.write(ctx.tb, x, y, toDraw)
+        iw.resetAttributes(ctx.tb)
 
 proc renderStatusBar(ctx: var nw.Context[State]) =
   let w = iw.width(ctx.tb)
@@ -289,7 +316,7 @@ proc renderAll(ctx: var nw.Context[State]) =
   # Rewrap whenever the terminal has been resized.
   if w != ctx.data.wrapWidth:
     buildWrappedLines(ctx, w)
-    buildMatchList(ctx)
+    discard buildMatchList(ctx)
   renderTitleBar(ctx)
   renderBody(ctx)
   renderStatusBar(ctx)
@@ -307,11 +334,17 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
   if ctx.data.inputMode == imSearch:
     case key:
     of iw.Key.Enter:
+      let previousPattern = ctx.data.searchPattern
       ctx.data.searchPattern = ctx.data.inputBuffer
       ctx.data.inputBuffer   = ""
       ctx.data.inputMode     = imNormal
-      buildMatchList(ctx)
-      if ctx.data.matchLines.len > 0:
+      let matchBuild = buildMatchList(ctx)
+      if not matchBuild.ok:
+        ctx.data.searchPattern = previousPattern
+        discard buildMatchList(ctx)
+        ctx.data.statusMessage    = "Invalid regex: " & matchBuild.err
+        ctx.data.statusMessageTTL = 120
+      elif ctx.data.matchLines.len > 0:
         ctx.data.matchIdx = 0
         scrollToCurrentMatch(ctx, contentH)
       else:
@@ -369,7 +402,7 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
   of iw.Key(ord('s')):
     ctx.data.wordWrap = not ctx.data.wordWrap
     buildWrappedLines(ctx, w)
-    buildMatchList(ctx)
+    discard buildMatchList(ctx)
     ctx.data.statusMessage    = if ctx.data.wordWrap: "Word-wrap ON" else: "Word-wrap OFF"
     ctx.data.statusMessageTTL = 80
 
@@ -451,6 +484,7 @@ proc initPager(ctx: var nw.Context[State], lines: seq[string],
   ctx.data.inputBuffer  = ""
   ctx.data.searchPattern = ""
   ctx.data.matchLines   = @[]
+  ctx.data.matchRanges  = initTable[int, seq[Slice[int]]]()
   ctx.data.matchIdx     = 0
   ctx.data.statusMessage    = ""
   ctx.data.statusMessageTTL = 0

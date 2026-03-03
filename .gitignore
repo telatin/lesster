@@ -6,3 +6,6 @@ bin/*
 *.md
 !README.md
 lesster.zip
+.nimble/
+.nimcache/
+tests/test_parser
