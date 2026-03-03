@@ -4,6 +4,8 @@
 
 # lesster
 
+[![CI](https://github.com/telatin/lesster/actions/workflows/ci.yml/badge.svg)](https://github.com/telatin/lesster/actions/workflows/ci.yml)
+
 A `less`-like interactive text pager for the terminal, written in Nim. Use it as a standalone binary or embed it in your own Nim program.
 
 ## Install
@@ -37,7 +39,7 @@ cat output.txt | lesster -
 
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Scroll one line up / down |
+| `???` / `???` | Scroll one line up / down |
 | `PgUp` / `PgDn` | Scroll one page up / down |
 | `Space` | Scroll one page down |
 | `g` | Jump to top |
