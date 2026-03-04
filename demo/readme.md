@@ -1,12 +1,21 @@
 # This is a readme
 
-	CIAO	is	a	tab
-   this 	also	tabs
+1	CIAO	is	a	tab
+2   this 	also	 A S
+2			T B
 ## Section 1
 
 Make dirs:
+
+```
 a temp dir (mktemp) to remove after running
-An output dir to keep "./benchmark")
+```
+
+An *output* dir to keep "./benchmark")
+An **output** dir to keep "./benchmark")
+An _output_ dir to keep "./benchmark")
+An `output` dir to keep "./benchmark")
+
 
 Steps:
 1. Decompress the fastq.gz file as dsrc will not accept the gz file
