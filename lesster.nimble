@@ -1,12 +1,14 @@
 # Package
 
-version       = "0.2.0"
+version       = "0.3.0"
 author        = "Andrea Telatin"
 description   = "A less-like interactive text pager library for Nim"
 license       = "MIT"
-srcDir        = "src"
-namedBin      = {"lesster_app": "lesster"}.toTable()
 binDir        = "bin"
+srcDir        = "src"
+installFiles  = @["lesster.nim"]
+skipFiles     = @["parser.nim"]
+namedBin      = {"lesster_app": "lesster"}.toTable()
 
 # Dependencies
 
