@@ -167,6 +167,7 @@ type
     mdInlineSpans: Table[int, seq[MdSpan]] ## Optional inline emphasis spans by wrapped-line index.
     wrapWidth:     int          ## Terminal width used when wrapping last ran
     scrollY:       int          ## Index of the top-visible line in wrappedLines
+    scrollX:       int          ## Horizontal rune offset when wordWrap is off.
     wordWrap:      bool
     inputMode:     InputMode
     inputBuffer:   string       ## In-progress search text
@@ -422,6 +423,23 @@ proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
   let maxScroll = max(0, ctx.data.wrappedLines.len - 1)
   ctx.data.scrollY = min(ctx.data.scrollY, maxScroll)
 
+proc maxHorizontalScroll(ctx: nw.Context[State], width: int): int =
+  ## Max horizontal rune offset required to reach the longest visible line.
+  if ctx.data.wordWrap or width <= 0:
+    return 0
+  var longest = 0
+  for line in ctx.data.wrappedLines:
+    longest = max(longest, line.runeLen)
+  result = max(0, longest - width)
+
+proc clampScrollX(ctx: var nw.Context[State], width: int) =
+  ## Keep horizontal scroll inside valid bounds for the current viewport.
+  if ctx.data.wordWrap:
+    ctx.data.scrollX = 0
+  else:
+    let maxX = maxHorizontalScroll(ctx, width)
+    ctx.data.scrollX = min(max(0, ctx.data.scrollX), maxX)
+
 # ── Search helpers ────────────────────────────────────────────────────────────
 
 proc buildMatchList(ctx: var nw.Context[State]): tuple[ok: bool, err: string] =
@@ -489,6 +507,7 @@ proc renderBody(ctx: var nw.Context[State]) =
         ctx.data.wrappedLines[lineIdx]
       else:
         ""
+    let viewX = if ctx.data.wordWrap: 0 else: ctx.data.scrollX
     var baseBg = theme.bodyBg
     var baseFg = theme.bodyFg
     var baseStyle: set[terminal.Style] = {}
@@ -511,7 +530,9 @@ proc renderBody(ctx: var nw.Context[State]) =
     # unpainted cells with stale glyphs from previous frames.
     iw.write(ctx.tb, 0, y, " ".repeat(max(0, w)))
     if text.len > 0 and w > 0:
-      iw.write(ctx.tb, 0, y, text.runeSubStr(0, w))
+      let visible = text.runeSubStr(viewX, w)
+      if visible.runeLen > 0:
+        iw.write(ctx.tb, 0, y, visible)
     iw.resetAttributes(ctx.tb)
 
     if text.len == 0 or w <= 0:
@@ -525,11 +546,16 @@ proc renderBody(ctx: var nw.Context[State]) =
         let endByte = min(bounds.b, text.len - 1)
         let prefix = if bounds.a > 0: text[0 ..< bounds.a] else: ""
         let spanText = text[bounds.a .. endByte]
-        let x = prefix.runeLen
+        var x = prefix.runeLen - viewX
         if x >= w:
           continue
-        let remainingWidth = w - x
         var toDraw = spanText
+        if x < 0:
+          toDraw = toDraw.runeSubStr(-x)
+          x = 0
+        let remainingWidth = w - x
+        if remainingWidth <= 0:
+          continue
         if toDraw.runeLen > remainingWidth:
           toDraw = toDraw.runeSubStr(0, remainingWidth)
         if toDraw.runeLen == 0:
@@ -557,11 +583,16 @@ proc renderBody(ctx: var nw.Context[State]) =
         let endByte = min(bounds.b, text.len - 1)
         let prefix = if bounds.a > 0: text[0 ..< bounds.a] else: ""
         let matchText = text[bounds.a .. endByte]
-        let x = prefix.runeLen
+        var x = prefix.runeLen - viewX
         if x >= w:
           continue
-        let remainingWidth = w - x
         var toDraw = matchText
+        if x < 0:
+          toDraw = toDraw.runeSubStr(-x)
+          x = 0
+        let remainingWidth = w - x
+        if remainingWidth <= 0:
+          continue
         if toDraw.runeLen > remainingWidth:
           toDraw = toDraw.runeSubStr(0, remainingWidth)
         if toDraw.runeLen == 0:
@@ -594,6 +625,14 @@ proc renderStatusBar(ctx: var nw.Context[State]) =
       let botLine  = min(ctx.data.scrollY + contentH, total)
       let pct      = if total > 0: min(100, (ctx.data.scrollY + contentH) * 100 div total) else: 100
       let wrap     = if ctx.data.wordWrap: "wrap" else: "nowrap"
+      let colInfo =
+        if ctx.data.wordWrap:
+          ""
+        else:
+          let maxCols = max(1, maxHorizontalScroll(ctx, w) + w)
+          let leftCol = ctx.data.scrollX + 1
+          let rightCol = min(maxCols, ctx.data.scrollX + w)
+          "  Cols " & $leftCol & "-" & $rightCol & "/" & $maxCols
       let tname    = ThemeNames[ctx.data.themeIdx mod ThemeNames.len]
       let matchInfo =
         if ctx.data.matchLines.len > 0:
@@ -604,6 +643,7 @@ proc renderStatusBar(ctx: var nw.Context[State]) =
       line = "Lines " & $topLine & "-" & $botLine & "/" & $total &
              "  " & $pct & "%" &
              "  [" & wrap & "]" &
+             colInfo &
              "  theme:" & tname &
              matchInfo
 
@@ -617,6 +657,7 @@ proc renderAll(ctx: var nw.Context[State]) =
   if w != ctx.data.wrapWidth:
     buildWrappedLines(ctx, w)
     discard buildMatchList(ctx)
+  clampScrollX(ctx, w)
   renderTitleBar(ctx)
   renderBody(ctx)
   renderStatusBar(ctx)
@@ -672,6 +713,16 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
     if ctx.data.scrollY < total - 1:
       ctx.data.scrollY += 1
 
+  of iw.Key.Left:
+    if not ctx.data.wordWrap and ctx.data.scrollX > 0:
+      dec ctx.data.scrollX
+
+  of iw.Key.Right:
+    if not ctx.data.wordWrap:
+      let maxX = maxHorizontalScroll(ctx, w)
+      if ctx.data.scrollX < maxX:
+        inc ctx.data.scrollX
+
   of iw.Key.PageUp:
     ctx.data.scrollY = max(0, ctx.data.scrollY - contentH)
 
@@ -709,6 +760,7 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
   of iw.Key(ord('s')):
     ctx.data.wordWrap = not ctx.data.wordWrap
     buildWrappedLines(ctx, w)
+    clampScrollX(ctx, w)
     discard buildMatchList(ctx)
     ctx.data.statusMessage    = if ctx.data.wordWrap: "Word-wrap ON" else: "Word-wrap OFF"
     ctx.data.statusMessageTTL = 80
@@ -790,6 +842,7 @@ proc initPager(ctx: var nw.Context[State], lines: seq[string],
   ctx.data.mdInlineSpans = initTable[int, seq[MdSpan]]()
   ctx.data.wordWrap     = true
   ctx.data.scrollY      = 0
+  ctx.data.scrollX      = 0
   ctx.data.inputMode    = imNormal
   ctx.data.inputBuffer  = ""
   ctx.data.searchPattern = ""
