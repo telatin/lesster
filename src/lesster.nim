@@ -60,6 +60,8 @@ type
     mdCodeFg*: iw.ForegroundColor      ## Markdown code-block foreground.
     mdEmphasisBg*: iw.BackgroundColor  ## Markdown emphasis background (same as body background).
     mdEmphasisFg*: iw.ForegroundColor  ## Markdown emphasis foreground (same accent as header).
+    mdInlineCodeBg*: iw.BackgroundColor ## Markdown inline-code background.
+    mdInlineCodeFg*: iw.ForegroundColor ## Markdown inline-code foreground.
 
 # ── Theme registry ────────────────────────────────────────────────────────────
 
@@ -76,7 +78,8 @@ let ThemesTable* = {
     matchBg:  iw.bgNone,    matchFg:  iw.fgYellow,
     mdHeaderBg: iw.bgNone,  mdHeaderFg: iw.fgYellow,
     mdCodeBg: iw.bgBlack,   mdCodeFg: iw.fgWhite,
-    mdEmphasisBg: iw.bgNone, mdEmphasisFg: iw.fgYellow
+    mdEmphasisBg: iw.bgNone, mdEmphasisFg: iw.fgYellow,
+    mdInlineCodeBg: iw.bgNone, mdInlineCodeFg: iw.fgMagenta
   ),
   "default": Theme(
     titleBg:  iw.bgBlue,    titleFg:  iw.fgWhite,
@@ -86,7 +89,8 @@ let ThemesTable* = {
     matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgCyan,
     mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
-    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan,
+    mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgMagenta
   ),
   "dark": Theme(
     titleBg:  iw.bgBlack,   titleFg:  iw.fgCyan,
@@ -96,7 +100,8 @@ let ThemesTable* = {
     matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgCyan,
     mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
-    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan,
+    mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgMagenta
   ),
   "light": Theme(
     titleBg:  iw.bgWhite,   titleFg:  iw.fgBlue,
@@ -106,7 +111,8 @@ let ThemesTable* = {
     matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgWhite, mdHeaderFg: iw.fgBlue,
     mdCodeBg: iw.bgCyan,    mdCodeFg: iw.fgBlack,
-    mdEmphasisBg: iw.bgWhite, mdEmphasisFg: iw.fgBlue
+    mdEmphasisBg: iw.bgWhite, mdEmphasisFg: iw.fgBlue,
+    mdInlineCodeBg: iw.bgWhite, mdInlineCodeFg: iw.fgMagenta
   ),
   "matrix": Theme(
     titleBg:  iw.bgBlack,   titleFg:  iw.fgGreen,
@@ -116,7 +122,8 @@ let ThemesTable* = {
     matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgGreen,
     mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
-    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgGreen
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgGreen,
+    mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgMagenta
   ),
   "mono": Theme(
     titleBg:  iw.bgWhite,   titleFg:  iw.fgBlack,
@@ -126,7 +133,8 @@ let ThemesTable* = {
     matchBg:  iw.bgWhite,   matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgWhite,
     mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
-    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgWhite
+    mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgWhite,
+    mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgWhite
   )
 }.toTable
 
@@ -145,6 +153,7 @@ type
   MdInlineKind = enum
     mikItalic
     mikBold
+    mikCode
 
   MdSpan = object
     bounds: Slice[int]   ## Byte bounds in the wrapped line.
@@ -202,6 +211,21 @@ proc wrapOneLine(line: string, width: int): seq[string] =
         cur = w
   result.add(cur)
 
+proc expandTabs(line: string, tabStop: int = 8): string =
+  ## Expand horizontal tabs to spaces so rendering never writes control chars.
+  if '\t' notin line:
+    return line
+  result = ""
+  var col = 0
+  for r in line.runes:
+    if int(r) == '\t'.ord:
+      let spaceCount = tabStop - (col mod tabStop)
+      result.add(" ".repeat(spaceCount))
+      col += spaceCount
+    else:
+      result.add($r)
+      inc col
+
 proc spansOverlap(a, b: Slice[int]): bool =
   not (a.b < b.a or b.b < a.a)
 
@@ -211,7 +235,8 @@ proc hasOverlap(spans: seq[MdSpan], bounds: Slice[int]): bool =
       return true
   return false
 
-proc parseDoubleDelimitedSpans(line: string, delim: string, kind: MdInlineKind): seq[MdSpan] =
+proc parseDoubleDelimitedSpans(line: string, delim: string, kind: MdInlineKind,
+                               existing: seq[MdSpan]): seq[MdSpan] =
   let delimLen = delim.len
   if delimLen == 0 or line.len < delimLen * 2:
     return
@@ -224,7 +249,9 @@ proc parseDoubleDelimitedSpans(line: string, delim: string, kind: MdInlineKind):
       while j <= line.len - delimLen:
         if line[j ..< j + delimLen] == delim:
           if j > startIdx:
-            result.add(MdSpan(bounds: startIdx .. j - 1, kind: kind))
+            let bounds = startIdx .. j - 1
+            if not hasOverlap(existing, bounds) and not hasOverlap(result, bounds):
+              result.add(MdSpan(bounds: bounds, kind: kind))
           i = j + delimLen
           foundClose = true
           break
@@ -266,8 +293,9 @@ proc parseSingleDelimitedSpans(line: string, delim: char, kind: MdInlineKind,
       inc i
 
 proc collectMarkdownInlineSpans(line: string): seq[MdSpan] =
-  result.add(parseDoubleDelimitedSpans(line, "__", mikBold))
-  result.add(parseDoubleDelimitedSpans(line, "**", mikBold))
+  result.add(parseSingleDelimitedSpans(line, '`', mikCode, result))
+  result.add(parseDoubleDelimitedSpans(line, "__", mikBold, result))
+  result.add(parseDoubleDelimitedSpans(line, "**", mikBold, result))
   result.add(parseSingleDelimitedSpans(line, '_', mikItalic, result))
   result.add(parseSingleDelimitedSpans(line, '*', mikItalic, result))
   for i in 1 ..< result.len:
@@ -275,6 +303,64 @@ proc collectMarkdownInlineSpans(line: string): seq[MdSpan] =
     while j > 0 and result[j - 1].bounds.a > result[j].bounds.a:
       swap(result[j - 1], result[j])
       dec j
+
+proc buildMarkdownDisplayLine(line: string): tuple[text: string, spans: seq[MdSpan]] =
+  ## Build a render-only markdown line: keep styled content, strip delimiters.
+  let spans = collectMarkdownInlineSpans(line)
+  if spans.len == 0:
+    return (line, @[])
+
+  var skip = newSeq[bool](line.len)
+  for span in spans:
+    let a = span.bounds.a
+    let b = span.bounds.b
+    case span.kind:
+    of mikCode:
+      if a >= 1 and b + 1 < line.len and line[a - 1] == '`' and line[b + 1] == '`':
+        skip[a - 1] = true
+        skip[b + 1] = true
+    of mikItalic:
+      if a >= 1 and b + 1 < line.len:
+        let openDelim = line[a - 1]
+        let closeDelim = line[b + 1]
+        if openDelim == closeDelim and (openDelim == '*' or openDelim == '_'):
+          skip[a - 1] = true
+          skip[b + 1] = true
+    of mikBold:
+      if a >= 2 and b + 2 < line.len:
+        let o1 = line[a - 2]
+        let o2 = line[a - 1]
+        let c1 = line[b + 1]
+        let c2 = line[b + 2]
+        if o1 == o2 and c1 == c2 and o1 == c1 and (o1 == '*' or o1 == '_'):
+          skip[a - 2] = true
+          skip[a - 1] = true
+          skip[b + 1] = true
+          skip[b + 2] = true
+
+  var idxMap = newSeq[int](line.len)
+  var outText = ""
+  var outIdx = 0
+  for i in 0 ..< line.len:
+    if skip[i]:
+      idxMap[i] = -1
+      continue
+    idxMap[i] = outIdx
+    outText.add(line[i])
+    inc outIdx
+
+  var outSpans: seq[MdSpan] = @[]
+  for span in spans:
+    let a = span.bounds.a
+    let b = span.bounds.b
+    if a < 0 or b < a or b >= line.len:
+      continue
+    let startIdx = idxMap[a]
+    let endIdx = idxMap[b]
+    if startIdx >= 0 and endIdx >= startIdx:
+      outSpans.add(MdSpan(bounds: startIdx .. endIdx, kind: span.kind))
+
+  (outText, outSpans)
 
 proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
   ## Rebuild wrappedLines from lines using *width*; clamp scrollY.
@@ -286,17 +372,21 @@ proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
   for line in ctx.data.lines:
     var displayLine = line
     var lineKind = mlBody
+    var skipLine = false
     if ctx.data.markdownMode:
       let trimmed = strutils.strip(line, leading = true, trailing = false)
       let isFence = trimmed.startsWith("```")
       if inCodeBlock:
-        lineKind = mlCode
         if isFence:
           inCodeBlock = false
+          skipLine = true
+        else:
+          lineKind = mlCode
+          displayLine = "  " & line
       else:
         if isFence:
-          lineKind = mlCode
           inCodeBlock = true
+          skipLine = true
         elif trimmed.len > 0 and trimmed[0] == '#':
           lineKind = mlHeader
           var hashCount = 0
@@ -305,18 +395,28 @@ proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
           if hashCount == 1:
             displayLine = line.toUpperAscii()
 
+    if skipLine:
+      continue
+
+    displayLine = expandTabs(displayLine)
+
     let wrapped =
       if ctx.data.wordWrap: wrapOneLine(displayLine, width)
       else: @[displayLine]
 
     for wl in wrapped:
       let idx = ctx.data.wrappedLines.len
-      ctx.data.wrappedLines.add(wl)
-      ctx.data.mdLineKinds.add(lineKind)
+      var renderLine = wl
+      var renderSpans: seq[MdSpan] = @[]
       if ctx.data.markdownMode and lineKind != mlCode:
-        let spans = collectMarkdownInlineSpans(wl)
-        if spans.len > 0:
-          ctx.data.mdInlineSpans[idx] = spans
+        let md = buildMarkdownDisplayLine(wl)
+        renderLine = md.text
+        renderSpans = md.spans
+
+      ctx.data.wrappedLines.add(renderLine)
+      ctx.data.mdLineKinds.add(lineKind)
+      if renderSpans.len > 0:
+        ctx.data.mdInlineSpans[idx] = renderSpans
 
   ctx.data.wrapWidth = width
   let maxScroll = max(0, ctx.data.wrappedLines.len - 1)
@@ -407,8 +507,11 @@ proc renderBody(ctx: var nw.Context[State]) =
     iw.setBackgroundColor(ctx.tb, baseBg)
     iw.setForegroundColor(ctx.tb, baseFg)
     iw.setStyle(ctx.tb, baseStyle)
-    let full = text & " ".repeat(max(0, w - text.runeLen))
-    iw.write(ctx.tb, 0, y, full.runeSubStr(0, w))
+    # Paint the full row first so control chars (like tabs) cannot leave
+    # unpainted cells with stale glyphs from previous frames.
+    iw.write(ctx.tb, 0, y, " ".repeat(max(0, w)))
+    if text.len > 0 and w > 0:
+      iw.write(ctx.tb, 0, y, text.runeSubStr(0, w))
     iw.resetAttributes(ctx.tb)
 
     if text.len == 0 or w <= 0:
@@ -431,13 +534,19 @@ proc renderBody(ctx: var nw.Context[State]) =
           toDraw = toDraw.runeSubStr(0, remainingWidth)
         if toDraw.runeLen == 0:
           continue
-        iw.setBackgroundColor(ctx.tb, theme.mdEmphasisBg)
-        iw.setForegroundColor(ctx.tb, theme.mdEmphasisFg)
         case span.kind:
         of mikItalic:
+          iw.setBackgroundColor(ctx.tb, theme.mdEmphasisBg)
+          iw.setForegroundColor(ctx.tb, theme.mdEmphasisFg)
           iw.setStyle(ctx.tb, {terminal.styleItalic})
         of mikBold:
+          iw.setBackgroundColor(ctx.tb, theme.mdEmphasisBg)
+          iw.setForegroundColor(ctx.tb, theme.mdEmphasisFg)
           iw.setStyle(ctx.tb, {terminal.styleBright})
+        of mikCode:
+          iw.setBackgroundColor(ctx.tb, theme.mdInlineCodeBg)
+          iw.setForegroundColor(ctx.tb, theme.mdInlineCodeFg)
+          iw.setStyle(ctx.tb, {})
         iw.write(ctx.tb, x, y, toDraw)
         iw.resetAttributes(ctx.tb)
 

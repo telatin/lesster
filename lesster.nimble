@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.3.0"
+version       = "0.3.1"
 author        = "Andrea Telatin"
 description   = "A less-like interactive text pager library for Nim"
 license       = "MIT"
