@@ -30,12 +30,12 @@ cat output.txt | lesster -
 
 **Options**
 
-| Flag | Description |
-|------|-------------|
-| `-t`, `--title` | Title shown in the title bar (default: filename) |
-| `-s`, `--scheme` | Colour theme: `default` `dark` `light` `matrix` `mono` `terminal` |
-| `--full-help` | Open bundled full help in the TUI |
-
+| Flag             | Description |
+|------------------|-------------|
+|     `-t`, `--title`  | Title shown in the title bar (default: filename) |
+|     `-s`, `--scheme` | Colour theme: `default` `dark` `light` `matrix` `mono` `terminal` |
+|   `--full-help`    | Open bundled full help in the TUI |
+ 
 ## Keybindings
 
 | Key | Action |
