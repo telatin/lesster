@@ -1,5 +1,10 @@
 # TableView - Interactive Key Commands
 
+
+```note
+code block demo
+```
+
 A TUI (Terminal User Interface) application for viewing and manipulating CSV/TSV files.
 
 ## Navigation
