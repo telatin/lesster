@@ -7,7 +7,6 @@ license       = "MIT"
 binDir        = "bin"
 srcDir        = "src"
 installFiles  = @["lesster.nim"]
-skipFiles     = @["parser.nim"]
 namedBin      = {"lesster_app": "lesster"}.toTable()
 
 # Dependencies
@@ -23,4 +22,4 @@ task docs, "Generate HTML documentation into docs/":
   exec "cp docs/theindex.html docs/index.html"
 
 task test, "Run unit tests":
-  exec "nim c -r --nimcache:.nimcache --out:.nimcache/test_parser --path:src tests/test_parser.nim"
+  exec "nim c -r --nimcache:.nimcache --out:.nimcache/test_markdown --path:src tests/test_markdown.nim"

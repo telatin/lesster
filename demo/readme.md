@@ -3,6 +3,7 @@
 1	CIAO	is	a	tab
 2   this 	also	 A S
 2			T B
+
 ## Section 1
 
 Make dirs:
@@ -11,11 +12,16 @@ Make dirs:
 a temp dir (mktemp) to remove after running
 ```
 
-An *output* dir to keep "./benchmark")
-An **output** dir to keep "./benchmark")
-An _output_ dir to keep "./benchmark")
-An `output` dir to keep "./benchmark")
+An *output* dir to keep "./benchmark"
+An **output** dir to keep "./benchmark"
+An _output_ dir to keep "./benchmark"
+An `output` dir to keep "./benchmark"
 
+Table | Item | Description
+--|--|--
+A1 | Alpha | Something here
+A2 | Beta | Something there
+B1 | Gamma | Something is also here
 
 Steps:
 1. Decompress the fastq.gz file as dsrc will not accept the gz file

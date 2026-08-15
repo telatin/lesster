@@ -22,6 +22,7 @@
 ## ``N``      Previous search match
 ## ``m``      Toggle minimal Markdown rendering on / off
 ## ``s``      Toggle word-wrap on / off
+## ``t``      Toggle markdown table formatting on / off
 ## ``Tab``    Cycle through colour themes
 ## ``q``      Quit
 ## =========  =============================================
@@ -88,7 +89,7 @@ let ThemesTable* = {
     searchBg: iw.bgYellow,  searchFg: iw.fgBlack,
     matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgCyan,
-    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdCodeBg: iw.bgBlack,    mdCodeFg: iw.fgWhite,
     mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan,
     mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgMagenta
   ),
@@ -99,7 +100,7 @@ let ThemesTable* = {
     searchBg: iw.bgGreen,   searchFg: iw.fgBlack,
     matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgCyan,
-    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdCodeBg: iw.bgBlack,    mdCodeFg: iw.fgWhite,
     mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgCyan,
     mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgMagenta
   ),
@@ -110,7 +111,7 @@ let ThemesTable* = {
     searchBg: iw.bgYellow,  searchFg: iw.fgBlack,
     matchBg:  iw.bgYellow,  matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgWhite, mdHeaderFg: iw.fgBlue,
-    mdCodeBg: iw.bgCyan,    mdCodeFg: iw.fgBlack,
+    mdCodeBg: iw.bgGreen,    mdCodeFg: iw.fgBlack,
     mdEmphasisBg: iw.bgWhite, mdEmphasisFg: iw.fgBlue,
     mdInlineCodeBg: iw.bgWhite, mdInlineCodeFg: iw.fgMagenta
   ),
@@ -121,7 +122,7 @@ let ThemesTable* = {
     searchBg: iw.bgGreen,   searchFg: iw.fgBlack,
     matchBg:  iw.bgGreen,   matchFg:  iw.fgBlack,
     mdHeaderBg: iw.bgBlack, mdHeaderFg: iw.fgGreen,
-    mdCodeBg: iw.bgBlue,    mdCodeFg: iw.fgWhite,
+    mdCodeBg: iw.bgBlack,    mdCodeFg: iw.fgWhite,
     mdEmphasisBg: iw.bgBlack, mdEmphasisFg: iw.fgGreen,
     mdInlineCodeBg: iw.bgBlack, mdInlineCodeFg: iw.fgMagenta
   ),
@@ -163,6 +164,7 @@ type
     lines:         seq[string]  ## Original source lines
     wrappedLines:  seq[string]  ## Lines after word-wrap (or == lines when off)
     markdownMode:  bool
+    mdTableMode:   bool         ## Format markdown tables with aligned columns
     mdLineKinds:   seq[MdLineKind]  ## Per wrapped-line markdown kind.
     mdInlineSpans: Table[int, seq[MdSpan]] ## Optional inline emphasis spans by wrapped-line index.
     wrapWidth:     int          ## Terminal width used when wrapping last ran
@@ -243,12 +245,16 @@ proc parseDoubleDelimitedSpans(line: string, delim: string, kind: MdInlineKind,
     return
   var i = 0
   while i <= line.len - delimLen:
-    if line[i ..< i + delimLen] == delim:
+    let openDelimBounds = i .. i + delimLen - 1
+    if line[i ..< i + delimLen] == delim and
+       not hasOverlap(existing, openDelimBounds):
       let startIdx = i + delimLen
       var j = startIdx
       var foundClose = false
       while j <= line.len - delimLen:
-        if line[j ..< j + delimLen] == delim:
+        let closeDelimBounds = j .. j + delimLen - 1
+        if line[j ..< j + delimLen] == delim and
+           not hasOverlap(existing, closeDelimBounds):
           if j > startIdx:
             let bounds = startIdx .. j - 1
             if not hasOverlap(existing, bounds) and not hasOverlap(result, bounds):
@@ -270,7 +276,8 @@ proc parseSingleDelimitedSpans(line: string, delim: char, kind: MdInlineKind,
   while i < line.len:
     let isOpen = line[i] == delim and
                  (i == 0 or line[i - 1] != delim) and
-                 (i + 1 < line.len and line[i + 1] != delim)
+                 (i + 1 < line.len and line[i + 1] != delim) and
+                 not hasOverlap(existing, i .. i)
     if isOpen:
       let startIdx = i + 1
       var j = startIdx
@@ -278,11 +285,12 @@ proc parseSingleDelimitedSpans(line: string, delim: char, kind: MdInlineKind,
       while j < line.len:
         let isClose = line[j] == delim and
                       line[j - 1] != delim and
-                      (j + 1 == line.len or line[j + 1] != delim)
+                      (j + 1 == line.len or line[j + 1] != delim) and
+                      not hasOverlap(existing, j .. j)
         if isClose:
           if j > startIdx:
             let bounds = startIdx .. j - 1
-            if not hasOverlap(existing, bounds):
+            if not hasOverlap(existing, bounds) and not hasOverlap(result, bounds):
               result.add(MdSpan(bounds: bounds, kind: kind))
           i = j + 1
           foundClose = true
@@ -363,14 +371,23 @@ proc buildMarkdownDisplayLine(line: string): tuple[text: string, spans: seq[MdSp
 
   (outText, outSpans)
 
+proc formatMarkdownTables(lines: seq[string]): seq[string]
+
 proc buildWrappedLines(ctx: var nw.Context[State], width: int) =
   ## Rebuild wrappedLines from lines using *width*; clamp scrollY.
   ctx.data.wrappedLines = @[]
   ctx.data.mdLineKinds = @[]
   ctx.data.mdInlineSpans = initTable[int, seq[MdSpan]]()
 
+  # Apply markdown table formatting if enabled
+  let sourceLines =
+    if ctx.data.mdTableMode:
+      formatMarkdownTables(ctx.data.lines)
+    else:
+      ctx.data.lines
+
   var inCodeBlock = false
-  for line in ctx.data.lines:
+  for line in sourceLines:
     var displayLine = line
     var lineKind = mlBody
     var skipLine = false
@@ -439,6 +456,143 @@ proc clampScrollX(ctx: var nw.Context[State], width: int) =
   else:
     let maxX = maxHorizontalScroll(ctx, width)
     ctx.data.scrollX = min(max(0, ctx.data.scrollX), maxX)
+
+# ── Markdown table helpers ────────────────────────────────────────────────────
+
+proc isTableSeparator(line: string): bool =
+  ## Check if line is a markdown table separator like |---|---| or --|--|--
+  let trimmed = strutils.strip(line)
+  if trimmed.len < 3:
+    return false
+  var hasDash = false
+  var hasPipe = false
+  for c in trimmed:
+    if c notin {'|', '-', ':', ' '}:
+      return false
+    if c == '-': hasDash = true
+    if c == '|': hasPipe = true
+  # Must contain at least one dash and one pipe
+  return hasDash and hasPipe
+
+proc looksLikeTableRow(line: string): bool =
+  ## Check if line looks like a table row (contains pipe separators).
+  let trimmed = strutils.strip(line)
+  if trimmed.len == 0:
+    return false
+  # Must contain at least one pipe
+  return '|' in trimmed
+
+proc parseTableRow(line: string): seq[string] =
+  ## Parse a markdown table row into cells. Handles both |a|b| and a|b formats.
+  let trimmed = strutils.strip(line)
+  if trimmed.len == 0 or '|' notin trimmed:
+    return @[]
+  var cells: seq[string] = @[]
+  var current = ""
+  var i = 0
+  # Skip leading | if present
+  if trimmed[0] == '|':
+    i = 1
+  while i < trimmed.len:
+    if trimmed[i] == '|':
+      cells.add(strutils.strip(current))
+      current = ""
+    else:
+      current.add(trimmed[i])
+    inc i
+  # Add last cell (skip if empty from trailing |)
+  let lastCell = strutils.strip(current)
+  if lastCell.len > 0 or trimmed[^1] != '|':
+    cells.add(lastCell)
+  return cells
+
+proc formatMarkdownTable(rows: seq[seq[string]]): seq[string] =
+  ## Format table rows with aligned columns.
+  if rows.len == 0:
+    return @[]
+
+  # Find max columns and widths
+  var numCols = 0
+  for row in rows:
+    numCols = max(numCols, row.len)
+
+  var colWidths = newSeq[int](numCols)
+  for row in rows:
+    for i, cell in row:
+      if i < numCols:
+        colWidths[i] = max(colWidths[i], cell.runeLen)
+
+  # Build formatted rows
+  result = @[]
+  for rowIdx, row in rows:
+    var line = "|"
+    for i in 0 ..< numCols:
+      let cell = if i < row.len: row[i] else: ""
+      let padding = colWidths[i] - cell.runeLen
+      line.add(" " & cell & " ".repeat(padding) & " |")
+    result.add(line)
+
+proc formatMarkdownTables(lines: seq[string]): seq[string] =
+  ## Detect and format all markdown tables in the content.
+  result = @[]
+  var i = 0
+  while i < lines.len:
+    let line = lines[i]
+
+    # Check if this looks like a table row (contains |)
+    if looksLikeTableRow(line):
+      # Collect consecutive table lines
+      var tableLines: seq[string] = @[line]
+      var j = i + 1
+      while j < lines.len:
+        if looksLikeTableRow(lines[j]) or isTableSeparator(lines[j]):
+          tableLines.add(lines[j])
+          inc j
+        else:
+          break
+
+      # Need at least 2 lines for a table (header + separator or header + row)
+      if tableLines.len >= 2:
+        # Check if second line is a separator (valid markdown table)
+        if isTableSeparator(tableLines[1]):
+          # Parse and format the table
+          var parsedRows: seq[seq[string]] = @[]
+          for tl in tableLines:
+            if not isTableSeparator(tl):
+              let cells = parseTableRow(tl)
+              if cells.len > 0:
+                parsedRows.add(cells)
+
+          if parsedRows.len > 0:
+            let formatted = formatMarkdownTable(parsedRows)
+            # Re-insert separator after header
+            if formatted.len > 0:
+              result.add(formatted[0])
+              # Build separator line
+              var sepLine = "|"
+              var numCols = 0
+              for row in parsedRows:
+                numCols = max(numCols, row.len)
+              var colWidths = newSeq[int](numCols)
+              for row in parsedRows:
+                for ci, cell in row:
+                  if ci < numCols:
+                    colWidths[ci] = max(colWidths[ci], cell.runeLen)
+              for ci in 0 ..< numCols:
+                sepLine.add(" " & "-".repeat(colWidths[ci]) & " |")
+              result.add(sepLine)
+              for fi in 1 ..< formatted.len:
+                result.add(formatted[fi])
+              i = j
+              continue
+
+      # Not a valid table, add lines as-is
+      for tl in tableLines:
+        result.add(tl)
+      i = j
+    else:
+      result.add(line)
+      inc i
 
 # ── Search helpers ────────────────────────────────────────────────────────────
 
@@ -696,7 +850,8 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
       ctx.data.inputMode   = imNormal
     of iw.Key.Backspace:
       if ctx.data.inputBuffer.len > 0:
-        ctx.data.inputBuffer = ctx.data.inputBuffer[0 ..< ctx.data.inputBuffer.len - 1]
+        let runes = ctx.data.inputBuffer.toRunes()
+        ctx.data.inputBuffer = $runes[0 ..< runes.len - 1]
     else:
       if key.int >= 32 and key.int <= 126:
         ctx.data.inputBuffer.add(chr(key.int))
@@ -763,6 +918,13 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
     clampScrollX(ctx, w)
     discard buildMatchList(ctx)
     ctx.data.statusMessage    = if ctx.data.wordWrap: "Word-wrap ON" else: "Word-wrap OFF"
+    ctx.data.statusMessageTTL = 80
+
+  of iw.Key(ord('t')):
+    ctx.data.mdTableMode = not ctx.data.mdTableMode
+    buildWrappedLines(ctx, w)
+    discard buildMatchList(ctx)
+    ctx.data.statusMessage    = if ctx.data.mdTableMode: "Table formatting ON" else: "Table formatting OFF"
     ctx.data.statusMessageTTL = 80
 
   of iw.Key.Tab:
@@ -838,6 +1000,7 @@ proc initPager(ctx: var nw.Context[State], lines: seq[string],
   ctx.data.lines        = lines
   ctx.data.title        = if title.len > 0: title else: "lesster"
   ctx.data.markdownMode = markdownMode
+  ctx.data.mdTableMode  = false
   ctx.data.mdLineKinds  = @[]
   ctx.data.mdInlineSpans = initTable[int, seq[MdSpan]]()
   ctx.data.wordWrap     = true
