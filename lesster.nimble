@@ -19,7 +19,6 @@ requires "regex"
 
 task docs, "Generate HTML documentation into docs/":
   exec "nim doc --project --outdir:docs --index:on src/lesster.nim"
-  exec "cp docs/theindex.html docs/index.html"
 
 task test, "Run unit tests":
   exec "nim c -r --nimcache:.nimcache --out:.nimcache/test_markdown --path:src tests/test_markdown.nim"
