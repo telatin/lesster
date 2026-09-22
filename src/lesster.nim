@@ -229,6 +229,43 @@ proc expandTabs(line: string, tabStop: int = 8): string =
       result.add($r)
       inc col
 
+proc sanitizeLine(line: string): string =
+  ## Strip ANSI/VT escape sequences and other C0 control bytes (except tab,
+  ## which `expandTabs` still needs) so untrusted file content can never
+  ## inject terminal control sequences into the pager's output. Operates
+  ## byte-wise; safe for UTF-8 since every marker byte here is ASCII and
+  ## multi-byte UTF-8 sequences only use bytes >= 0x80.
+  result = newStringOfCap(line.len)
+  var i = 0
+  while i < line.len:
+    let c = line[i]
+    if c == '\x1b':
+      if i + 1 < line.len and line[i + 1] == '[':
+        # CSI sequence: ESC [ ... final-byte (0x40-0x7E)
+        var j = i + 2
+        while j < line.len and not (line[j] >= '\x40' and line[j] <= '\x7e'):
+          inc j
+        i = if j < line.len: j + 1 else: line.len
+      elif i + 1 < line.len and line[i + 1] == ']':
+        # OSC sequence: ESC ] ... BEL or ESC \
+        var j = i + 2
+        while j < line.len and line[j] != '\x07' and
+              not (line[j] == '\x1b' and j + 1 < line.len and line[j + 1] == '\\'):
+          inc j
+        i = if j < line.len and line[j] == '\x07': j + 1
+            elif j < line.len: j + 2
+            else: line.len
+      else:
+        inc i  # drop a lone/unrecognised ESC
+    elif c == '\t':
+      result.add(c)
+      inc i
+    elif ord(c) < 0x20 or ord(c) == 0x7f:
+      inc i  # drop other C0 control bytes and DEL
+    else:
+      result.add(c)
+      inc i
+
 proc spansOverlap(a, b: Slice[int]): bool =
   not (a.b < b.a or b.b < a.a)
 
@@ -944,29 +981,54 @@ proc handleInput(ctx: var nw.Context[State], key: iw.Key): bool =
 
 # ── Event loop ────────────────────────────────────────────────────────────────
 
-proc tick(ctx: var nw.Context[State], prevTb: var iw.TerminalBuffer): bool =
+const
+  ActiveSleepMs = 5   ## Poll interval right after activity — snappy input.
+  IdleSleepMs   = 40  ## Poll interval once idle — still well under human
+                       ## reaction time, but ~8x fewer wakeups than active.
+
+proc tick(ctx: var nw.Context[State], prevTb: var iw.TerminalBuffer,
+          lastWidth, lastHeight: var int): tuple[quit: bool, dirty: bool] =
+  ## Handle one loop iteration. Only rebuilds/repaints/diffs the terminal
+  ## buffer when something actually changed (key, mouse scroll, resize, or a
+  ## transient status message counting down) — that full-screen repaint +
+  ## diff is the expensive part, not the poll itself, so that's what's
+  ## gated; the caller also slows the poll itself down while idle.
   var mouseInfo: iw.MouseInfo
   let key = iw.getKey(mouseInfo)
+  var dirty = false
 
   case mouseInfo.scrollDir:
   of iw.ScrollDirection.sdUp:
     discard handleInput(ctx, iw.Key.Up)
+    dirty = true
   of iw.ScrollDirection.sdDown:
     discard handleInput(ctx, iw.Key.Down)
+    dirty = true
   else:
     discard
 
   if key != iw.Key.None:
     if handleInput(ctx, key):
-      return true
+      return (true, false)
+    dirty = true
 
   if ctx.data.statusMessageTTL > 0:
     ctx.data.statusMessageTTL -= 1
+    dirty = true
 
-  ctx.tb = iw.initTerminalBuffer(terminal.terminalWidth(), terminal.terminalHeight())
-  renderAll(ctx)
-  iw.display(ctx.tb, prevTb)
-  return false
+  let curWidth  = terminal.terminalWidth()
+  let curHeight = terminal.terminalHeight()
+  if curWidth != lastWidth or curHeight != lastHeight:
+    dirty = true
+
+  if dirty:
+    ctx.tb = iw.initTerminalBuffer(curWidth, curHeight)
+    renderAll(ctx)
+    iw.display(ctx.tb, prevTb)
+    lastWidth  = curWidth
+    lastHeight = curHeight
+
+  return (false, dirty)
 
 proc deinit() =
   terminal.showCursor()
@@ -974,12 +1036,15 @@ proc deinit() =
 
 proc runEventLoop(ctx: var nw.Context[State]) =
   var prevTb: iw.TerminalBuffer
+  var lastWidth  = -1
+  var lastHeight = -1
   try:
     while true:
-      if tick(ctx, prevTb):
+      let (quit, dirty) = tick(ctx, prevTb, lastWidth, lastHeight)
+      if quit:
         break
       prevTb = ctx.tb
-      os.sleep(5)
+      os.sleep(if dirty: ActiveSleepMs else: IdleSleepMs)
   except Exception as ex:
     deinit()
     raise ex
@@ -997,7 +1062,9 @@ proc initPager(ctx: var nw.Context[State], lines: seq[string],
       if n == name: idx = i
     idx
 
-  ctx.data.lines        = lines
+  ctx.data.lines = newSeq[string](lines.len)
+  for i, ln in lines:
+    ctx.data.lines[i] = sanitizeLine(ln)
   ctx.data.title        = if title.len > 0: title else: "lesster"
   ctx.data.markdownMode = markdownMode
   ctx.data.mdTableMode  = false
@@ -1040,6 +1107,20 @@ proc viewText*(lines: seq[string], title: string = "lesster",
   initPager(ctx, lines, title, themeName, markdownMode)
   runEventLoop(ctx)
 
+proc readFileLines(path: string): seq[string] =
+  ## Read `path` into a sequence of lines, raising a clean `IOError` (missing
+  ## file, directory, permission denied, ...) instead of letting Nim's raw
+  ## exception / stack trace escape to the caller.
+  if dirExists(path):
+    raise newException(IOError, "'" & path & "' is a directory, not a file")
+  try:
+    for line in lines(path):
+      result.add(line)
+  except IOError as e:
+    raise newException(IOError, "cannot open '" & path & "': " & e.msg)
+  except OSError as e:
+    raise newException(IOError, "cannot open '" & path & "': " & e.msg)
+
 proc viewFile*(path: string, title: string = "",
                themeName: string = "default", markdownMode: bool = false) =
   ## Launch the interactive pager for a file path, or ``"-"`` for stdin.
@@ -1063,8 +1144,7 @@ proc viewFile*(path: string, title: string = "",
         discard posix.close(ttyFd)
     displayTitle = if title.len > 0: title else: "<stdin>"
   else:
-    for line in lines(path):
-      lines.add(line)
+    lines = readFileLines(path)
     displayTitle = if title.len > 0: title else: path
 
   var ctx: nw.Context[State]

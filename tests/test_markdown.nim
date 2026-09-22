@@ -86,3 +86,36 @@ suite "markdown table formatting":
     check formatted[1] == "| ----- | ----- | --------------- |"
     check formatted[2] == "| A1    | Alpha | Something here  |"
     check formatted[3] == "| A2    | Beta  | Something there |"
+
+suite "file reading error handling":
+  test "raises IOError for a nonexistent path":
+    expect IOError:
+      discard readFileLines("/nonexistent/does-not-exist.txt")
+
+  test "raises IOError for a directory":
+    expect IOError:
+      discard readFileLines(getTempDir())
+
+  when defined(posix):
+    test "raises IOError for a permission-denied file":
+      let path = getTempDir() / "lesster_test_noperm.txt"
+      writeFile(path, "secret")
+      setFilePermissions(path, {})
+      defer:
+        setFilePermissions(path, {fpUserRead, fpUserWrite})
+        removeFile(path)
+      expect IOError:
+        discard readFileLines(path)
+
+suite "control character sanitization":
+  test "strips a CSI (color) escape sequence but keeps the text":
+    check sanitizeLine("\x1b[31mHello\x1b[0m") == "Hello"
+
+  test "strips an OSC (e.g. terminal title) escape sequence":
+    check sanitizeLine("\x1b]0;evil title\x07Hello") == "Hello"
+
+  test "drops stray C0 control bytes but keeps tab":
+    check sanitizeLine("a\rb\x07c\td") == "abc\td"
+
+  test "leaves unicode content untouched":
+    check sanitizeLine("café 😀") == "café 😀"

@@ -1,4 +1,3 @@
-import os
 import strutils
 import argparse
 import lesster
@@ -33,10 +32,6 @@ proc main() =
       )
       return
 
-    if path != "-" and not fileExists(path):
-      echo "Error: file not found: ", path
-      quit(1)
-
     viewFile(path, title, themeName, markdownMode = markdownMode)
 
   except ShortCircuit as e:
@@ -46,6 +41,9 @@ proc main() =
   except UsageError:
     stderr.writeLine getCurrentExceptionMsg()
     echo p.help
+    quit(1)
+  except IOError, OSError:
+    stderr.writeLine "Error: " & getCurrentExceptionMsg()
     quit(1)
 
 when isMainModule:
